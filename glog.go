@@ -703,10 +703,11 @@ func (l *loggingT) output(s severity, buf *buffer, file string, line int, alsoTo
 		case warningLog:
 			l.file[warningLog].Write(data)
 			fallthrough
+		case infoLog:
+			l.file[infoLog].Write(data)
+
 		case statisLog:
 			l.file[statisLog].Write(data)
-			fallthrough
-		case infoLog:
 			l.file[infoLog].Write(data)
 		}
 	}
@@ -859,7 +860,7 @@ func (sb *syncBuffer) rotateFile(now time.Time) error {
 // bufferSize sizes the buffer associated with each log file. It's large
 // so that log records can accumulate without the logging thread blocking
 // on disk I/O. The flushDaemon will block instead.
-const bufferSize = 256 * 1024
+const bufferSize = 512 * 1024
 
 // createFiles creates all the log files for severity from sev down to infoLog.
 // l.mu is held.
@@ -878,6 +879,61 @@ func (l *loggingT) createFiles(sev severity) error {
 		l.file[s] = sb
 	}
 	return nil
+}
+
+// createNewFiles creates all the log files for severity from sev down to infoLog.
+// l.mu is held.
+func (l *loggingT) createNewFiles(sev severity) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if !flag.Parsed() {
+		return fmt.Errorf("ERROR: logging before flag.Parse: ")
+	} else if l.toStderr {
+		return nil
+	}
+
+	now := time.Now()
+	// Files are created in decreasing severity order, so as soon as we find one
+	// has already been created, we can stop.
+	for s := sev; s >= infoLog; s-- {
+		var sb *syncBuffer
+		if l.file[s] == nil {
+			sb = &syncBuffer{
+				logger: l,
+				sev:    s,
+			}
+		} else {
+			if v, ok := l.file[s].(*syncBuffer); ok {
+				sb = v
+			}
+		}
+
+		if err := sb.rotateFile(now); err != nil {
+			return err
+		}
+		l.file[s] = sb
+	}
+
+	return nil
+}
+
+// createNewFiles creates all the log files for severity from sev down to infoLog.
+// l.mu is held.
+func (l *loggingT) getFileNames(sev severity) []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	var filenames []string
+	for s := sev; s >= infoLog; s-- {
+		if l.file[s] != nil {
+			if v, ok := l.file[s].(*syncBuffer); ok {
+				filenames = append(filenames, v.file.Name())
+			}
+		}
+	}
+
+	return filenames
 }
 
 const flushInterval = 30 * time.Second
@@ -1206,4 +1262,68 @@ func Exitln(args ...interface{}) {
 func Exitf(format string, args ...interface{}) {
 	atomic.StoreUint32(&fatalNoStacks, 1)
 	logging.printf(fatalLog, format, args...)
+}
+
+func MoveAndCreateNewFiles(movedir string) error {
+	var err error
+	var filenames []string
+	var olddir string
+	var find bool
+
+	s := fatalLog
+
+	if err = logging.createNewFiles(s); err != nil {
+		return err
+	}
+
+	runfilenames := logging.getFileNames(s)
+	for _, v := range runfilenames {
+		n := strings.LastIndex(v, "/")
+		if n >= 0 {
+			olddir = v[:n]
+			break
+		}
+	}
+
+	filepath.Walk(olddir, func(path string, fi os.FileInfo, err error) error {
+		if nil == fi {
+			return err
+		}
+		if fi.IsDir() || (fi.Mode()&os.ModeSymlink) > 0 {
+			return nil
+		}
+
+		name := filepath.Join(olddir, fi.Name())
+		filenames = append(filenames, name)
+
+		return nil
+	})
+
+	if _, err = os.Stat(movedir); err != nil {
+		if err = os.MkdirAll(movedir, os.ModePerm); err != nil {
+			return err
+		}
+	}
+
+	for _, v1 := range filenames {
+		find = false
+		for _, v2 := range runfilenames {
+			if v1 == v2 {
+				fmt.Printf("runfilenames = %v\n", v2)
+				find = true
+				break
+			}
+		}
+		if find {
+			continue
+		}
+
+		name := strings.Split(v1, "/")
+		newpath := filepath.Join(movedir, name[len(name)-1])
+		if err = os.Rename(v1, newpath); err != nil {
+			return err
+		}
+	}
+
+	return err
 }

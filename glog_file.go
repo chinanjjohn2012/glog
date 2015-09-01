@@ -110,6 +110,10 @@ func create(tag string, t time.Time) (f *os.File, filename string, err error) {
 	name, link := logName(tag, t)
 	var lastErr error
 	for _, dir := range logDirs {
+		if _, err := os.Stat(dir); err != nil {
+			os.MkdirAll(dir, os.ModePerm)
+		}
+
 		fname := filepath.Join(dir, name)
 		f, err := os.Create(fname)
 		if err == nil {
@@ -117,6 +121,8 @@ func create(tag string, t time.Time) (f *os.File, filename string, err error) {
 			os.Remove(symlink)        // ignore err
 			os.Symlink(name, symlink) // ignore err
 			return f, fname, nil
+		} else {
+			fmt.Printf("Create err =%v\n", err)
 		}
 		lastErr = err
 	}
