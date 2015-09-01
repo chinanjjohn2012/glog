@@ -85,7 +85,9 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
+	"unicode/utf16"
 )
 
 // severity identifies the sort of log: info, warning etc. It also implements
@@ -932,7 +934,7 @@ func (l *loggingT) getFileNames(sev severity) []string {
 			}
 		}
 	}
-	fmt.Printf("filenames =%#v\n", filenames)
+	//fmt.Printf("getFileNames filenames = %#v\n", filenames)
 	return filenames
 }
 
@@ -1264,31 +1266,36 @@ func Exitf(format string, args ...interface{}) {
 	logging.printf(fatalLog, format, args...)
 }
 
-func MoveAndCreateNewFiles(movedir string) error {
+func MoveFiles(movedir string) error {
 	var err error
 	var filenames []string
 	var olddir string
 	var find bool
 
 	if len(movedir) < 1 {
-		return fmt.Errorf("MoveAndCreateNewFiles movedir empty")
+		return fmt.Errorf("MoveFiles movedir empty")
 	}
 
 	s := fatalLog
 
-	if err = logging.createNewFiles(s); err != nil {
-		return err
-	}
-
 	runfilenames := logging.getFileNames(s)
 	for _, v := range runfilenames {
-		n := strings.LastIndex(v, "/")
-		if n >= 0 {
-			olddir = v[:n]
-			break
-		}
+		olddir = filepath.Dir(v)
+		fmt.Printf("olddir=%v\n", olddir)
+		break
+
 	}
-	fmt.Printf("olddir=%v\n", olddir)
+	movedir = filepath.Clean(movedir)
+	if movedir, err = filepath.Abs(movedir); err != nil {
+		return err
+	}
+	//fmt.Printf("movedir=%v\n", movedir)
+
+	if movedir == olddir {
+		return fmt.Errorf("MoveFiles movedir == olddir, %v", movedir)
+	}
+
+	pattern := filepath.Base(os.Args[0]) + "." + "*.log.*-*"
 	filepath.Walk(olddir, func(path string, fi os.FileInfo, err error) error {
 		if nil == fi {
 			return err
@@ -1296,12 +1303,15 @@ func MoveAndCreateNewFiles(movedir string) error {
 		if fi.IsDir() || (fi.Mode()&os.ModeSymlink) > 0 {
 			return nil
 		}
-		fmt.Printf("fi=%#v\n", fi)
-		name := filepath.Join(olddir, fi.Name())
-		filenames = append(filenames, name)
+
+		if matched, err := filepath.Match(pattern, fi.Name()); matched && err == nil {
+			name := filepath.Join(olddir, fi.Name())
+			filenames = append(filenames, name)
+		}
 
 		return nil
 	})
+	//fmt.Printf("filenames=%v\n", filenames)
 
 	if _, err = os.Stat(movedir); err != nil {
 		if err = os.MkdirAll(movedir, os.ModePerm); err != nil {
@@ -1322,11 +1332,34 @@ func MoveAndCreateNewFiles(movedir string) error {
 			continue
 		}
 
-		name := strings.Split(v1, "/")
-		newpath := filepath.Join(movedir, name[len(name)-1])
-		if err = os.Rename(v1, newpath); err != nil {
+		newpath := filepath.Join(movedir, filepath.Base(v1))
+		if err = syscall.MoveFile(&StringToUTF16(v1)[0], &StringToUTF16(newpath)[0]); err != nil {
 			return err
 		}
+	}
+
+	return err
+}
+
+func StringToUTF16(s string) []uint16 {
+	return utf16.Encode([]rune(s + "\x00"))
+}
+
+func MoveAndCreateNewFiles(movedir string) error {
+	var err error
+
+	if len(movedir) < 1 {
+		return fmt.Errorf("MoveAndCreateNewFiles movedir empty")
+	}
+
+	s := fatalLog
+
+	if err = logging.createNewFiles(s); err != nil {
+		return err
+	}
+
+	if err = MoveFiles(movedir); err != nil {
+		return err
 	}
 
 	return err
