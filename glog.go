@@ -932,7 +932,7 @@ func (l *loggingT) getFileNames(sev severity) []string {
 			}
 		}
 	}
-
+	fmt.Printf("filenames =%#v\n", filenames)
 	return filenames
 }
 
@@ -1270,6 +1270,10 @@ func MoveAndCreateNewFiles(movedir string) error {
 	var olddir string
 	var find bool
 
+	if len(movedir) < 1 {
+		return fmt.Errorf("MoveAndCreateNewFiles movedir empty")
+	}
+
 	s := fatalLog
 
 	if err = logging.createNewFiles(s); err != nil {
@@ -1284,7 +1288,7 @@ func MoveAndCreateNewFiles(movedir string) error {
 			break
 		}
 	}
-
+	fmt.Printf("olddir=%v\n", olddir)
 	filepath.Walk(olddir, func(path string, fi os.FileInfo, err error) error {
 		if nil == fi {
 			return err
@@ -1292,7 +1296,7 @@ func MoveAndCreateNewFiles(movedir string) error {
 		if fi.IsDir() || (fi.Mode()&os.ModeSymlink) > 0 {
 			return nil
 		}
-
+		fmt.Printf("fi=%#v\n", fi)
 		name := filepath.Join(olddir, fi.Name())
 		filenames = append(filenames, name)
 
