@@ -99,16 +99,18 @@ type severity int32 // sync/atomic int32
 // lower-severity log file.
 const (
 	infoLog severity = iota
+	statisLog
 	warningLog
 	errorLog
 	fatalLog
-	numSeverity = 4
+	numSeverity = 5
 )
 
-const severityChar = "IWEF"
+const severityChar = "ISWEF"
 
 var severityName = []string{
 	infoLog:    "INFO",
+	statisLog:  "STATIS",
 	warningLog: "WARNING",
 	errorLog:   "ERROR",
 	fatalLog:   "FATAL",
@@ -701,6 +703,9 @@ func (l *loggingT) output(s severity, buf *buffer, file string, line int, alsoTo
 		case warningLog:
 			l.file[warningLog].Write(data)
 			fallthrough
+		case statisLog:
+			l.file[statisLog].Write(data)
+			fallthrough
 		case infoLog:
 			l.file[infoLog].Write(data)
 		}
@@ -1071,6 +1076,30 @@ func Infoln(args ...interface{}) {
 // Arguments are handled in the manner of fmt.Printf; a newline is appended if missing.
 func Infof(format string, args ...interface{}) {
 	logging.printf(infoLog, format, args...)
+}
+
+// Statis logs to the STATIS log.
+// Arguments are handled in the manner of fmt.Print; a newline is appended if missing.
+func Statis(args ...interface{}) {
+	logging.print(statisLog, args...)
+}
+
+// StatisDepth acts as Info but uses depth to determine which call frame to log.
+// StatisDepth(0, "msg") is the same as Info("msg").
+func StatisDepth(depth int, args ...interface{}) {
+	logging.printDepth(statisLog, depth, args...)
+}
+
+// Statisln logs to the STATIS log.
+// Arguments are handled in the manner of fmt.Println; a newline is appended if missing.
+func Statisln(args ...interface{}) {
+	logging.println(statisLog, args...)
+}
+
+// Statisf logs to the STATIS log.
+// Arguments are handled in the manner of fmt.Printf; a newline is appended if missing.
+func Statisf(format string, args ...interface{}) {
+	logging.printf(statisLog, format, args...)
 }
 
 // Warning logs to the WARNING and INFO logs.
