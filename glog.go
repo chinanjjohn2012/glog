@@ -85,7 +85,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 	"unicode/utf16"
 )
@@ -552,6 +551,11 @@ func (l *loggingT) header(s severity, depth int) (*buffer, string, int) {
 
 // formatHeader formats a log header using the provided file name and line number.
 func (l *loggingT) formatHeader(s severity, file string, line int) *buffer {
+
+	if s == statisLog {
+		return l.formatStatisHeader()
+	}
+
 	now := timeNow()
 	if line < 0 {
 		line = 0 // not a real line number, but acceptable to someDigits
@@ -587,6 +591,48 @@ func (l *loggingT) formatHeader(s severity, file string, line int) *buffer {
 	buf.tmp[n+1] = ']'
 	buf.tmp[n+2] = ' '
 	buf.Write(buf.tmp[:n+3])
+	return buf
+}
+
+func (l *loggingT) formatStatisHeader() *buffer {
+	now := timeNow()
+	buf := l.getBuffer()
+
+	// Avoid Fprintf, for speed. The format is so simple that we can do it quickly by hand.
+	// It's worth about 3X. Fprintf is hard.
+	year, month, day := now.Date()
+	hour, minute, second := now.Clock()
+	// [yyyy-mm-dd hh:mm:ss]
+	i := 0
+	buf.tmp[i] = '['
+	i += 1
+	buf.nDigits(4, i, int(year), '0')
+	i += 4
+	buf.tmp[i] = '-'
+	i += 1
+	buf.twoDigits(i, int(month))
+	i += 2
+	buf.tmp[i] = '-'
+	i += 1
+	buf.twoDigits(i, day)
+	i += 2
+	buf.tmp[i] = ' '
+	i += 1
+	buf.twoDigits(i, hour)
+	i += 2
+	buf.tmp[i] = ':'
+	i += 1
+	buf.twoDigits(i, minute)
+	i += 2
+	buf.tmp[i] = ':'
+	i += 1
+	buf.twoDigits(i, second)
+	i += 2
+	buf.tmp[i] = ']'
+	i += 1
+	buf.tmp[i] = ' '
+	i += 1
+	buf.Write(buf.tmp[:i])
 	return buf
 }
 
@@ -1289,7 +1335,7 @@ func MoveFiles(movedir string) error {
 	if movedir, err = filepath.Abs(movedir); err != nil {
 		return err
 	}
-	//fmt.Printf("movedir=%v\n", movedir)
+	fmt.Printf("movedir=%v\n", movedir)
 
 	if movedir == olddir {
 		return fmt.Errorf("MoveFiles movedir == olddir, %v", movedir)
@@ -1311,7 +1357,7 @@ func MoveFiles(movedir string) error {
 
 		return nil
 	})
-	//fmt.Printf("filenames=%v\n", filenames)
+	fmt.Printf("filenames=%v\n", filenames)
 
 	if _, err = os.Stat(movedir); err != nil {
 		if err = os.MkdirAll(movedir, os.ModePerm); err != nil {
@@ -1333,7 +1379,8 @@ func MoveFiles(movedir string) error {
 		}
 
 		newpath := filepath.Join(movedir, filepath.Base(v1))
-		if err = syscall.MoveFile(&StringToUTF16(v1)[0], &StringToUTF16(newpath)[0]); err != nil {
+		//if err = syscall.MoveFile(&StringToUTF16(v1)[0], &StringToUTF16(newpath)[0]); err != nil {
+		if err = os.Rename(v1, newpath); err != nil {
 			return err
 		}
 	}
